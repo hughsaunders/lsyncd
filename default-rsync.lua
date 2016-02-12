@@ -4,29 +4,21 @@
 --    Syncs with rsync ("classic" Lsyncd)
 --    A (Layer 1) configuration.
 --
--- Note:
---    this is infact just a configuration using Layer 1 configuration
---    like any other. It only gets compiled into the binary by default.
---    You can simply use a modified one, by copying everything into a
---    config file of yours and name it differently.
---
 -- License: GPLv2 (see COPYING) or any later version
 -- Authors: Axel Kittenberger <axkibe@gmail.com>
+--  Pre/Post Command additions: Hugh Saunders <hugh@wherenow.org>
 --
 --~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+-- needed for executing pre/post tasks. Can't use the lsync spawn method as
+-- that requires an event, and an event isn't available for the initial
+-- recursive sync.
+require ('os')
 
 if not default
 then
 	error( 'default not loaded' )
 end
-
-
-if default.rsync
-then
-	error( 'default-rsync already loaded' )
-end
-
 
 local rsync = { }
 
@@ -88,9 +80,21 @@ rsync.checkgauge = {
 		whole_file        =  true,
 		xattrs            =  true,
 		_extra            =  true,
+		precmd            =  true,
+		postcmd           =  true,
 	},
 }
 
+--
+-- Execute Pre/Post Command
+--
+prepost = function (config, prepost)
+  local cmd_string = (config.rsync.rsh .. ' '
+    .. string.gsub(config.target, ':.*$', '')
+    .. ' "' .. config.rsync[prepost] .. '"' )
+  log('Normal', 'Executing ' .. prepost .. ': ' .. cmd_string)
+  os.execute(cmd_string)
+end
 
 --
 -- Spawns rsync for a list of events
@@ -203,6 +207,7 @@ rsync.action = function( inlet )
 		delete = { '--delete', '--ignore-errors' }
 	end
 
+    prepost(config, 'precmd')
 	spawn(
 		elist,
 		config.rsync.binary,
@@ -217,7 +222,7 @@ rsync.action = function( inlet )
 		config.source,
 		config.target
 	)
-
+    prepost(config, 'postcmd')
 end
 
 
@@ -244,6 +249,7 @@ rsync.init = function(event)
 		delete = { '--delete', '--ignore-errors' }
 	end
 
+    prepost(config, 'precmd')
 	if #excludes == 0 then
 		-- start rsync without any excludes
 		log(
@@ -291,6 +297,7 @@ rsync.init = function(event)
 			target
 		)
 	end
+    prepost(config, 'postcmd')
 end
 
 
@@ -562,3 +569,15 @@ rsync.rsync =
 -- Default delay
 --
 rsync.delay = 15
+
+sync {
+    rsync,
+    source = "/home/hugh/git/lsyncd/examples/src",
+    target = "hugh@origin.wherenow.org:/tmp/dest",
+    rsync = {
+      precmd = "echo \"pre $(date)\" >> /tmp/lsync.log",
+      postcmd = "echo \"post $(date)\" >> /tmp/lsync.log",
+      rsh = "/usr/bin/ssh"
+    },
+    delay = 1,
+}
